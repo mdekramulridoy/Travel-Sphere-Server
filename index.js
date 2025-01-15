@@ -3,6 +3,7 @@ const app = express();
 const cors = require("cors");
 require("dotenv").config();
 const port = process.env.PORT || 5000;
+const { ObjectId } = require("mongodb");
 
 // Middleware
 app.use(cors());
@@ -87,6 +88,25 @@ async function run() {
         res
           .status(500)
           .json({ message: "Error fetching random tour guides", error });
+      }
+    });
+
+    // Endpoint to fetch a specific tour guide by _id
+    app.get("/tour-guide-profile/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const guide = await tourGuidesCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (guide) {
+          res.send(guide);
+        } else {
+          res.status(404).json({ message: "Tour guide not found" });
+        }
+      } catch (error) {
+        res
+          .status(500)
+          .json({ message: "Error fetching tour guide profile", error });
       }
     });
 
