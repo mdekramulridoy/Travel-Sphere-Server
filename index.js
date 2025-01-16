@@ -30,6 +30,23 @@ async function run() {
     const packagesCollection = client.db("travelDb").collection("packages");
     const tourGuidesCollection = client.db("travelDb").collection("guides");
 
+
+
+
+    // admin
+
+
+    app.patch('/users/admin/:id', async(req, res) => {
+      const id = req.params.id;
+      const filter = {_id: new ObjectId(id)};
+      const updatedDoc = {
+        $set: {
+          role: 'admin'
+        }
+      }
+      const result = await userCollection.updateOne(filter, updatedDoc)
+      res.send(result);
+    })
     
     // user api
     app.get("/users", async (req, res) => {
