@@ -121,43 +121,46 @@ async function run() {
       const existingUser = await userCollection.findOne(query);
       if (existingUser) {
         return res.send({
-          message: "user already exist",
+          message: "User already exists",
           insertedId: null,
         });
       }
-      const result = await userCollection.insertOne(user);
+
+      const result = await userCollection.insertOne({
+        email: user.email,
+        name: user.name,
+        photoURL: user.photoURL || null,
+      });
       res.send(result);
     });
+    
 
-    // Endpoint to fetch all packages
     app.get("/packages", async (req, res) => {
       const result = await packagesCollection.find().toArray();
       res.send(result);
     });
 
-    // Endpoint to fetch a specific package by _id
     app.get("/packages/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        const result = await packagesCollection.findOne({ _id: id });
+        const result = await packagesCollection.findOne({ _id: new ObjectId(id) });
         if (result) {
           res.send(result);
         } else {
           res.status(404).json({ message: "Package not found" });
         }
       } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Error fetching package details", error });
+        res.status(500).json({ message: "Error fetching package details", error });
       }
     });
+    
 
     // Endpoint to fetch 3 random packages
     app.get("/random-packages", async (req, res) => {
       try {
         const randomPackages = await packagesCollection
           .aggregate([
-            { $sample: { size: 3 } }, // Fetch 3 random packages
+            { $sample: { size: 3 } },
           ])
           .toArray();
         res.json(randomPackages);
