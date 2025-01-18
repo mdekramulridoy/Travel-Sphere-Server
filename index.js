@@ -1,52 +1,19 @@
+// server/index.js
+
 const express = require("express");
 const app = express();
 const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
+const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
+require('dotenv').config();
 const port = process.env.PORT || 5000;
-const { ObjectId } = require("mongodb");
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// verify middleware
-const verifyToken = (req, res, next) => {
-  // console.log('inside verify token', req.headers.authorization);
-  if (!req.headers.authorization) {
-    return res.status(401).send({ message: "unauthorized access" });
-  }
-  const token = req.headers.authorization.split(" ")[1];
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(401).send({ message: "unauthorized access" });
-    }
-    req.decoded = decoded;
-    next();
-  });
-};
-
-// verify admin
-const verifyAdmin = async (req, res, next) => {
-  const email = req.decoded.email;
-  const userCollection = client.db("travelDb").collection("users");
-  const query = { email: email };
-  const user = await userCollection.findOne(query);
-  const isAdmin = user?.role === 'admin';
-  if (!isAdmin) {
-    return res.status(403).send({ message: 'forbidden access' });
-  }
-  next();
-}
-
-
-
-
-
-const { MongoClient, ServerApiVersion } = require("mongodb");
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.tvoho.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -55,182 +22,186 @@ const client = new MongoClient(uri, {
   },
 });
 
+// Middleware for verifying JWT Token
+const verifyToken = (req, res, next) => {
+  if (!req.headers.authorization) {
+    return res.status(401).send({ message: "Unauthorized access" });
+  }
+  const token = req.headers.authorization.split(" ")[1];
+  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "Unauthorized or expired token" });
+    }
+    req.decoded = decoded;
+    next();
+  });
+};
+
+// Middleware for verifying Admin Role
+const verifyAdmin = async (req, res, next) => {
+  const email = req.decoded.email;
+  const userCollection = client.db("travelDb").collection("users");
+  const user = await userCollection.findOne({ email });
+  if (user?.role !== "admin") {
+    return res.status(403).send({ message: "Forbidden access" });
+  }
+  next();
+};
+
 async function run() {
   try {
-    // Connect the client to the server (optional starting in v4.7)
-    // await client.connect();
+    const db = client.db("travelDb");
+    const userCollection = db.collection("users");
+    const guideApplicationsCollection = db.collection("guideApplications");
 
-    const userCollection = client.db("travelDb").collection("users");
-    const packagesCollection = client.db("travelDb").collection("packages");
-    const tourGuidesCollection = client.db("travelDb").collection("guides");
-
-    // jwt api working here
-
+    // JWT API
     app.post("/jwt", async (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, {
-        expiresIn: "1hr",
+        expiresIn: "24hr",
       });
       res.send({ token });
     });
 
-    // admin
-
-    app.patch("/users/admin/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updatedDoc = {
-        $set: {
-          role: "admin",
-        },
-      };
-      const result = await userCollection.updateOne(filter, updatedDoc);
-      res.send(result);
-    });
-
-    // user api
-    app.get("/users", verifyToken,verifyAdmin, async (req, res) => {
-      const result = await userCollection.find().toArray();
-      res.send(result);
-    });
-
-
-    // admin check
-    app.get('/users/admin/:email', verifyToken, async (req, res) => {
-      const email = req.params.email;
-
-      if (email !== req.decoded.email) {
-        return res.status(403).send({ message: 'forbidden access' })
-      }
-
-      const query = { email: email };
-      const user = await userCollection.findOne(query);
-      let admin = false;
-      if (user) {
-        admin = user?.role === 'admin';
-      }
-      res.send({ admin });
-    })
-
-
-
-
+    // Add new user (Tourist by default)
     app.post("/users", async (req, res) => {
-      const user = req.body;
-      const query = { email: user.email };
+      const { email, name, photoURL, role } = req.body;
+      const query = { email };
       const existingUser = await userCollection.findOne(query);
       if (existingUser) {
-        return res.send({
-          message: "User already exists",
-          insertedId: null,
-        });
+        return res.send({ message: "User already exists", insertedId: null });
       }
 
       const result = await userCollection.insertOne({
-        email: user.email,
-        name: user.name,
-        photoURL: user.photoURL || null,
+        email,
+        name,
+        photoURL: photoURL || null,
+        role: role || "tourist",
       });
       res.send(result);
     });
-    
 
-    app.get("/packages", async (req, res) => {
-      const result = await packagesCollection.find().toArray();
-      res.send(result);
-    });
-
-    app.get("/packages/:id", async (req, res) => {
+    // Check user role
+    app.get("/users/role/:email", verifyToken, async (req, res) => {
       try {
-        const id = req.params.id;
-        const result = await packagesCollection.findOne({ _id: new ObjectId(id) });
-        if (result) {
-          res.send(result);
-        } else {
-          res.status(404).json({ message: "Package not found" });
+        const email = req.params.email;
+        if (email !== req.decoded.email) {
+          return res.status(403).send({ message: "Forbidden access" });
         }
-      } catch (error) {
-        res.status(500).json({ message: "Error fetching package details", error });
-      }
-    });
-    
 
-    // Endpoint to fetch 3 random packages
-    app.get("/random-packages", async (req, res) => {
-      try {
-        const randomPackages = await packagesCollection
-          .aggregate([
-            { $sample: { size: 3 } },
-          ])
-          .toArray();
-        res.json(randomPackages);
-      } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Error fetching random packages", error });
-      }
-    });
+        const user = await userCollection.findOne({ email });
 
-    // Endpoint to fetch all tour guides
-    app.get("/guides", async (req, res) => {
-      const result = await tourGuidesCollection.find().toArray();
-      res.send(result);
-    });
-
-    // Endpoint to fetch 6 random tour guides
-    app.get("/random-guides", async (req, res) => {
-      try {
-        const randomTourGuides = await tourGuidesCollection
-          .aggregate([
-            { $sample: { size: 6 } }, // Fetch 6 random tour guides
-          ])
-          .toArray();
-        res.json(randomTourGuides);
-      } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Error fetching random tour guides", error });
-      }
-    });
-
-    // Endpoint to fetch a specific tour guide by _id
-    app.get("/tour-guide-profile/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
-        const guide = await tourGuidesCollection.findOne({
-          _id: new ObjectId(id),
-        });
-        if (guide) {
-          res.send(guide);
-        } else {
-          res.status(404).json({ message: "Tour guide not found" });
+        if (!user) {
+          return res.status(404).send({ message: "User not found" });
         }
+
+        const role = user?.role || "tourist";
+        return res.send({ role });
       } catch (error) {
-        res
-          .status(500)
-          .json({ message: "Error fetching tour guide profile", error });
+        console.error("Error in fetching user role:", error);
+        res.status(500).send({ message: "Internal Server Error" });
       }
     });
 
-    // Send a ping to confirm a successful connection
+    // Submit guide application
+    app.post("/guideApplications", verifyToken, async (req, res) => {
+      try {
+        const application = req.body;
+        application.status = "pending";
+        const result = await guideApplicationsCollection.insertOne(application);
+        res.send(result);
+      } catch (error) {
+        console.error("Error in submitting guide application:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+   // Middleware for verifying specific role
+const verifyRole = (requiredRole) => {
+  return async (req, res, next) => {
+    try {
+      const email = req.decoded.email;
+      const user = await client.db("travelDb").collection("users").findOne({ email });
+      if (!user || user.role !== requiredRole) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      next();
+    } catch (error) {
+      console.error("Role verification error:", error);
+      res.status(500).send({ message: "Internal Server Error" });
+    }
+  };
+};
+
+// Updated routes
+// Get all guide applications (Admin only)
+app.get(
+  "/guideApplications",
+  verifyToken,
+  verifyRole("admin"),
+  async (req, res) => {
+    try {
+      const applications = await guideApplicationsCollection.find().toArray();
+      res.send(applications);
+    } catch (error) {
+      console.error("Error in fetching guide applications:", error);
+      res.status(500).send({ message: "Internal Server Error" });
+    }
+  }
+);
+
+// Approve or reject guide application (Admin only)
+app.patch(
+  "/guideApplications/:id",
+  verifyToken,
+  verifyRole("admin"),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      const result = await guideApplicationsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { status } }
+      );
+      res.send(result);
+    } catch (error) {
+      console.error("Error in updating guide application:", error);
+      res.status(500).send({ message: "Internal Server Error" });
+    }
+  }
+);
+
+// Promote user to guide (Admin only)
+app.patch(
+  "/users/promote/:email",
+  verifyToken,
+  verifyRole("admin"),
+  async (req, res) => {
+    try {
+      const { email } = req.params;
+      const result = await userCollection.updateOne(
+        { email },
+        { $set: { role: "guide" } }
+      );
+      res.send(result);
+    } catch (error) {
+      console.error("Error in promoting user to guide:", error);
+      res.status(500).send({ message: "Internal Server Error" });
+    }
+  }
+);
+
+
+    // Connect to MongoDB and start server
     await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
-  } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    console.log("Connected to MongoDB");
+  } catch (err) {
+    console.error(err);
   }
 }
 
-run().catch(console.dir);
+run().catch(console.error);
 
-// Basic Route
-app.get("/", (req, res) => {
-  res.send("Travel Sphere is working");
-});
-
-// Start the server
-app.listen(port, () => {
-  console.log(`Travel Sphere is working on port ${port}`);
+app.listen(5000, () => {
+  console.log("Server running on port", port);
 });
