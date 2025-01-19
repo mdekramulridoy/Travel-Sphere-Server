@@ -62,6 +62,19 @@ async function run() {
       });
       res.send({ token });
     });
+    // Get all users
+    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const users = await client
+          .db("travelDb")
+          .collection("users")
+          .find()
+          .toArray();
+        res.send(users);
+      } catch (err) {
+        res.status(500).send({ message: "Error fetching users" });
+      }
+    });
 
     // Add new user (Tourist by default)
     app.post("/users", async (req, res) => {
@@ -201,6 +214,38 @@ async function run() {
           res.send({ status: application.status });
         } catch (error) {
           console.error("Error fetching guide application status:", error);
+          res.status(500).send({ message: "Internal server error." });
+        }
+      }
+    );
+
+    // DELETE request handler for rejecting a guide application
+    app.delete(
+      "/guideApplications/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const applicationId = req.params.id;
+
+        try {
+          const guideApplicationsCollection = client
+            .db("travelDb")
+            .collection("guideApplications");
+
+          // Update application status to 'rejected'
+          const updatedApplication =
+            await guideApplicationsCollection.updateOne(
+              { _id: new ObjectId(applicationId) },
+              { $set: { status: "rejected" } }
+            );
+
+          if (updatedApplication.matchedCount === 0) {
+            return res.status(404).send({ message: "Application not found." });
+          }
+
+          res.send({ message: "Application rejected successfully." });
+        } catch (err) {
+          console.error("Error rejecting the application:", err);
           res.status(500).send({ message: "Internal server error." });
         }
       }
