@@ -6,7 +6,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
-require('dotenv').config();
+require("dotenv").config();
 const port = process.env.PORT || 5000;
 
 // Middleware
@@ -103,6 +103,38 @@ async function run() {
       }
     });
 
+    // Check if user is admin
+    app.get("/users/admin/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+      const query = { email };
+      const user = await userCollection.findOne(query);
+      const admin = user?.role === "admin";
+      res.send({ admin });
+    });
+
+    // Middleware for verifying specific role
+    const verifyRole = (requiredRole) => {
+      return async (req, res, next) => {
+        try {
+          const email = req.decoded.email;
+          const user = await client
+            .db("travelDb")
+            .collection("users")
+            .findOne({ email });
+          if (!user || user.role !== requiredRole) {
+            return res.status(403).send({ message: "Forbidden access" });
+          }
+          next();
+        } catch (error) {
+          console.error("Role verification error:", error);
+          res.status(500).send({ message: "Internal Server Error" });
+        }
+      };
+    };
+
     // Submit guide application
     app.post("/guideApplications", verifyToken, async (req, res) => {
       try {
@@ -116,81 +148,115 @@ async function run() {
       }
     });
 
-   // Middleware for verifying specific role
-const verifyRole = (requiredRole) => {
-  return async (req, res, next) => {
-    try {
-      const email = req.decoded.email;
-      const user = await client.db("travelDb").collection("users").findOne({ email });
-      if (!user || user.role !== requiredRole) {
-        return res.status(403).send({ message: "Forbidden access" });
+    // guide route add
+    app.get(
+      "/guideApplications",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        try {
+          const guideApplications = await client
+            .db("travelDb")
+            .collection("guideApplications")
+            .find()
+            .toArray();
+          res.send(guideApplications);
+        } catch (error) {
+          console.error("Error fetching guide applications:", error);
+          res
+            .status(500)
+            .send({ message: "Failed to fetch guide applications" });
+        }
       }
-      next();
-    } catch (error) {
-      console.error("Role verification error:", error);
-      res.status(500).send({ message: "Internal Server Error" });
-    }
-  };
-};
+    );
 
-// Updated routes
-// Get all guide applications (Admin only)
-app.get(
-  "/guideApplications",
-  verifyToken,
-  verifyRole("admin"),
-  async (req, res) => {
-    try {
-      const applications = await guideApplicationsCollection.find().toArray();
-      res.send(applications);
-    } catch (error) {
-      console.error("Error in fetching guide applications:", error);
-      res.status(500).send({ message: "Internal Server Error" });
-    }
-  }
-);
+    // Get Guide Application Status for a Specific Email
+    app.get(
+      "/guideApplications/status/:email",
+      verifyToken,
+      async (req, res) => {
+        try {
+          const email = req.params.email;
 
-// Approve or reject guide application (Admin only)
-app.patch(
-  "/guideApplications/:id",
-  verifyToken,
-  verifyRole("admin"),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { status } = req.body;
-      const result = await guideApplicationsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { status } }
-      );
-      res.send(result);
-    } catch (error) {
-      console.error("Error in updating guide application:", error);
-      res.status(500).send({ message: "Internal Server Error" });
-    }
-  }
-);
+          // Ensure the request is being made by the correct user
+          if (email !== req.decoded.email) {
+            return res.status(403).send({ message: "Forbidden access" });
+          }
 
-// Promote user to guide (Admin only)
-app.patch(
-  "/users/promote/:email",
-  verifyToken,
-  verifyRole("admin"),
-  async (req, res) => {
-    try {
-      const { email } = req.params;
-      const result = await userCollection.updateOne(
-        { email },
-        { $set: { role: "guide" } }
-      );
-      res.send(result);
-    } catch (error) {
-      console.error("Error in promoting user to guide:", error);
-      res.status(500).send({ message: "Internal Server Error" });
-    }
-  }
-);
+          const guideApplicationsCollection = client
+            .db("travelDb")
+            .collection("guideApplications");
 
+          // Fetch the application with the given email
+          const application = await guideApplicationsCollection.findOne({
+            email,
+          });
+
+          if (!application) {
+            return res
+              .status(404)
+              .send({ message: "No application found for this email." });
+          }
+
+          res.send({ status: application.status });
+        } catch (error) {
+          console.error("Error fetching guide application status:", error);
+          res.status(500).send({ message: "Internal server error." });
+        }
+      }
+    );
+
+    // Get All Guide Applications (Admin Only)
+    app.patch(
+      "/guideApplications/:id",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const applicationId = req.params.id;
+        const { status, email } = req.body; // Expecting status and email in the body
+
+        if (!status || !email) {
+          return res
+            .status(400)
+            .send({ message: "Status and email are required." });
+        }
+
+        try {
+          const guideApplicationsCollection = client
+            .db("travelDb")
+            .collection("guideApplications");
+          const userCollection = client.db("travelDb").collection("users");
+
+          // Update application status
+          const updatedApplication =
+            await guideApplicationsCollection.deleteOne({
+              _id: new ObjectId(applicationId),
+            });
+
+          if (updatedApplication.deletedCount === 0) {
+            return res.status(404).send({ message: "Application not found." });
+          }
+
+          // Update user role
+          const updatedUser = await userCollection.updateOne(
+            { email },
+            { $set: { role: "guide" } }
+          );
+
+          if (updatedUser.matchedCount === 0) {
+            return res.status(404).send({ message: "User not found." });
+          }
+
+          res.send({ message: "Application approved and user role updated." });
+        } catch (err) {
+          console.error(
+            "Error approving application and updating user role:",
+            err
+          );
+          res.status(500).send({ message: "Internal server error." });
+        }
+      }
+    );
 
     // Connect to MongoDB and start server
     await client.db("admin").command({ ping: 1 });
