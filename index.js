@@ -53,6 +53,83 @@ async function run() {
     const db = client.db("travelDb");
     const userCollection = db.collection("users");
     const guideApplicationsCollection = db.collection("guideApplications");
+    const packageCollection = db.collection("packages");
+
+    // Add new package
+    app.post("/packages", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const newPackage = req.body;
+        const result = await packageCollection.insertOne(newPackage);
+        res.send(result);
+      } catch (error) {
+        console.error("Error adding package:", error);
+        res.status(500).send({ message: "Failed to add package" });
+      }
+    });
+
+    // Get all packages
+    app.get("/packages", async (req, res) => {
+      try {
+        const packages = await packageCollection.find().toArray();
+        res.send(packages);
+      } catch (error) {
+        console.error("Error fetching packages:", error);
+        res.status(500).send({ message: "Failed to fetch packages" });
+      }
+    });
+
+    // Get a single package by ID
+    app.get("/packages/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const package = await packageCollection.findOne({
+          _id: new ObjectId(id),
+        });
+        if (!package) {
+          return res.status(404).send({ message: "Package not found" });
+        }
+        res.send(package);
+      } catch (error) {
+        console.error("Error fetching package:", error);
+        res.status(500).send({ message: "Failed to fetch package" });
+      }
+    });
+
+    // Update a package
+    app.patch("/packages/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const updates = req.body;
+        const result = await packageCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: updates }
+        );
+        if (result.matchedCount === 0) {
+          return res.status(404).send({ message: "Package not found" });
+        }
+        res.send({ message: "Package updated successfully" });
+      } catch (error) {
+        console.error("Error updating package:", error);
+        res.status(500).send({ message: "Failed to update package" });
+      }
+    });
+
+    // Delete a package
+    app.delete("/packages/:id", verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await packageCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: "Package not found" });
+        }
+        res.send({ message: "Package deleted successfully" });
+      } catch (error) {
+        console.error("Error deleting package:", error);
+        res.status(500).send({ message: "Failed to delete package" });
+      }
+    });
 
     // JWT API
     app.post("/jwt", async (req, res) => {
@@ -94,6 +171,19 @@ async function run() {
       res.send(result);
     });
 
+    // Guide api
+    app.get("/guides",verifyToken, verifyAdmin, async (req, res) => {
+      try {
+        const guides = await client
+          .db("travelDb")
+          .collection("users")
+          .find({ role: "guide" })
+          .toArray();
+        res.send(guides);
+      } catch (err) {
+        res.status(500).send({ message: "Error fetching guides" });
+      }
+    });
     // Check user role
     app.get("/users/role/:email", verifyToken, async (req, res) => {
       try {
@@ -128,25 +218,7 @@ async function run() {
       res.send({ admin });
     });
 
-    // Middleware for verifying specific role
-    const verifyRole = (requiredRole) => {
-      return async (req, res, next) => {
-        try {
-          const email = req.decoded.email;
-          const user = await client
-            .db("travelDb")
-            .collection("users")
-            .findOne({ email });
-          if (!user || user.role !== requiredRole) {
-            return res.status(403).send({ message: "Forbidden access" });
-          }
-          next();
-        } catch (error) {
-          console.error("Role verification error:", error);
-          res.status(500).send({ message: "Internal Server Error" });
-        }
-      };
-    };
+    // server/index.js
 
     // Submit guide application
     app.post("/guideApplications", verifyToken, async (req, res) => {
@@ -161,7 +233,7 @@ async function run() {
       }
     });
 
-    // guide route add
+    // guideApplication route add
     app.get(
       "/guideApplications",
       verifyToken,
@@ -183,7 +255,7 @@ async function run() {
       }
     );
 
-    // Get Guide Application Status for a Specific Email
+    // Get GuideApplication Status for a Specific Email
     app.get(
       "/guideApplications/status/:email",
       verifyToken,
