@@ -266,6 +266,30 @@ async function run() {
         res.status(500).send({ message: "Internal Server Error" });
       }
     });
+    // Delete a booking
+    app.delete("/bookings/cancel/:id", verifyToken, async (req, res) => {
+      const { id } = req.params; // Booking ID
+
+      if (!id) {
+        return res.status(400).send({ message: "Booking ID is required." });
+      }
+
+      try {
+        const bookingsCollection = client.db("travelDb").collection("bookings");
+        const result = await bookingsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 0) {
+          return res.status(404).send({ message: "Booking not found." });
+        }
+
+        res.send({ message: "Booking cancelled successfully." });
+      } catch (error) {
+        console.error("Error deleting booking:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
 
     // Add new package
     app.post("/packages", verifyToken, verifyAdmin, async (req, res) => {
@@ -415,7 +439,7 @@ async function run() {
       }
     });
     // Fetch guide details by ID
-    app.get("/guides/:id", verifyToken, async (req, res) => {
+    app.get("/guides/:id", async (req, res) => {
       const { id } = req.params;
       const guidesCollection = client.db("travelDb").collection("users");
 
@@ -433,6 +457,87 @@ async function run() {
       } catch (error) {
         console.error("Error fetching guide details:", error);
         res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // Get random 6 guides
+    app.get("/guides/random/6", async (req, res) => {
+      try {
+        const guides = await userCollection
+          .aggregate([{ $match: { role: "guide" } }, { $sample: { size: 6 } }])
+          .toArray();
+
+        if (guides.length === 0) {
+          return res.status(404).json({ message: "No guides found" });
+        }
+
+        res.json(guides);
+      } catch (error) {
+        console.error("Error fetching guides:", error);
+        res
+          .status(500)
+          .json({ message: "Error fetching guides, please try again later" });
+      }
+    });
+
+    // Get random 3 packages
+    app.get("/packages/random/3", async (req, res) => {
+      try {
+        const packageCollection = client.db("travelDb").collection("packages");
+
+        // Fetching 3 random packages using $sample aggregation
+        const packages = await packageCollection
+          .aggregate([{ $sample: { size: 3 } }])
+          .toArray();
+
+        if (packages.length === 0) {
+          return res.status(404).json({ message: "No packages available" });
+        }
+
+        res.json(packages); // Send the fetched packages as a response
+      } catch (error) {
+        console.error("Error fetching packages:", error);
+        res
+          .status(500)
+          .json({ message: "Error fetching packages, please try again later" });
+      }
+    });
+
+    // Fetch random 4 stories
+    app.get("/stories/random/4", verifyToken, async (req, res) => {
+      try {
+        const storiesCollection = client.db("travelDb").collection("stories");
+        const stories = await storiesCollection
+          .aggregate([
+            { $sample: { size: 4 } }, // Randomly select 4 stories
+          ])
+          .toArray();
+
+        res.send(stories);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Error fetching random stories" });
+      }
+    });
+    // server/index.js
+
+    // Get specific story by ID
+    app.get("/story/:id", async (req, res) => {
+      try {
+        const storyId = req.params.id;
+        const storiesCollection = client.db("travelDb").collection("stories");
+
+        const story = await storiesCollection.findOne({
+          _id: ObjectId(storyId),
+        });
+        if (!story) {
+          return res.status(404).send({ message: "Story not found" });
+        }
+
+        res.send(story);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Error fetching story" });
       }
     });
 
@@ -470,7 +575,7 @@ async function run() {
       res.send({ admin });
     });
     // Route to fetch stats
-    app.get("/admin/stats", verifyToken,verifyAdmin, async (req, res) => {
+    app.get("/admin/stats", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const userCollection = client.db("travelDb").collection("users");
         const packageCollection = client.db("travelDb").collection("packages");
