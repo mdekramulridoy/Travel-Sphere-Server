@@ -118,6 +118,47 @@ async function run() {
       }
     });
 
+    // Post stories
+
+    app.post("/stories", verifyToken, async (req, res) => {
+      try {
+        const email = req.decoded.email; // Extract the logged-in user's email from JWT token
+        const { title, text, images } = req.body; // Extract data from the request body
+
+        // Validate the input
+        if (
+          !title ||
+          !text ||
+          !images ||
+          !Array.isArray(images) ||
+          images.length === 0
+        ) {
+          return res.status(400).send({ message: "All fields are required" });
+        }
+
+        // Create the story object
+        const story = {
+          title,
+          text,
+          images, // Array of image URLs
+          email, // Attach user's email
+          createdAt: new Date(), // Timestamp
+        };
+
+        // Insert the story into the database
+        const result = await storyCollection.insertOne(story);
+
+        if (result.acknowledged) {
+          res.status(201).send({ message: "Story added successfully", story });
+        } else {
+          res.status(500).send({ message: "Failed to add story" });
+        }
+      } catch (error) {
+        console.error("Error adding story:", error);
+        res.status(500).send({ message: "Server error" });
+      }
+    });
+
     // GET API to fetch all stories
     app.get("/stories", verifyToken, async (req, res) => {
       try {
