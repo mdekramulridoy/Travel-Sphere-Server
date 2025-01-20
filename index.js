@@ -171,8 +171,26 @@ async function run() {
       res.send(result);
     });
 
+    // Update existing user
+    app.put("/users/:email", async (req, res) => {
+      const email = req.params.email;
+      const { name, image, email: userEmail } = req.body;
+      console.log("Incoming Data for PUT:", req.body);
+      const filter = { email };
+      const updateDoc = {
+        $set: {
+          name,
+          photoURL: image,
+          email: userEmail,
+        },
+      };
+      const options = { upsert: true }; // Upsert enabled
+      const result = await userCollection.updateOne(filter, updateDoc, options);
+      res.send(result);
+    });
+
     // Guide api
-    app.get("/guides",verifyToken, verifyAdmin, async (req, res) => {
+    app.get("/guides", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const guides = await client
           .db("travelDb")
