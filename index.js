@@ -7,6 +7,7 @@ const jwt = require("jsonwebtoken");
 require("dotenv").config();
 const { MongoClient, ObjectId, ServerApiVersion } = require("mongodb");
 require("dotenv").config();
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 const port = process.env.PORT || 5000;
 
 // Middleware
@@ -56,38 +57,69 @@ async function run() {
     const packageCollection = db.collection("packages");
     const bookingCollection = db.collection("bookings");
     const storyCollection = client.db("travelDb").collection("stories");
+    const paymentCollection = client.db("travelDb").collection("payments");
 
-    // POST API to add a story
-    app.post("/stories", verifyToken, async (req, res) => {
+    run();
+
+    app.get("/", (req, res) => {
+      res.send("Server is running ok.");
+    });
+
+    // Add payments collection
+    app.post("/payments", async (req, res) => {
       try {
-        const { title, text, images } = req.body;
-        const email = req.decoded.email; // Email from the decoded JWT token
+        const { bookingId, amount, paymentMethodId, userInfo } = req.body;
 
-        if (!title || !text || !images || images.length === 0) {
-          return res.status(400).send({ message: "All fields are required" });
-        }
+        // আপনার সার্ভারে স্ট্রাইপ এর PaymentIntent তৈরি করতে হবে।
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount * 100, // স্ট্রাইপের মাধ্যমে পেমেন্টের পরিমাণ সেন্টে পাঠান
+          currency: "usd", // আপনার যেটি ব্যবহার করা হবে সেই মুদ্রা নির্বাচন করুন
+          payment_method: paymentMethodId,
+          confirmation_method: "manual",
+          confirm: true,
+        });
 
-        const newStory = {
-          title,
-          text,
-          images,
-          email, // Attach user's email to the story
-          createdAt: new Date(),
-        };
+        // পেমেন্ট সফল হলে, এটি ডেটাবেসে সংরক্ষণ করুন
+        const result = await paymentCollection.insertOne({
+          bookingId,
+          amount,
+          userInfo,
+          status: "paid",
+          paymentDate: new Date(),
+          paymentIntentId: paymentIntent.id, // স্ট্রাইপ এর paymentIntent ID সংরক্ষণ করুন
+        });
 
-        const result = await storyCollection.insertOne(newStory);
-        res.status(201).send({
-          message: "Story added successfully",
-          storyId: result.insertedId,
+        res.status(200).send({
+          message: "Payment stored successfully",
+          result,
+          paymentIntent,
         });
       } catch (error) {
-        console.error("Error adding story:", error);
-        res.status(500).send({ message: "Failed to add story" });
+        console.error("Error storing payment data:", error);
+        res.status(500).send({ message: "Error processing payment" });
+      }
+    });
+
+    // payment intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount * 100, // Convert to cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({ clientSecret: paymentIntent.client_secret });
+      } catch (error) {
+        console.error("Error creating payment intent:", error);
+        res.status(500).send("Internal Server Error");
       }
     });
 
     // GET API to fetch all stories
-    app.get("/stories", verifyToken, async (req, res) => {
+    app.get("/stories", async (req, res) => {
       try {
         const email = req.decoded.email; // Logged-in user's email from JWT token
         const stories = await storyCollection.find({ email }).toArray(); // Fetch stories specific to the user
