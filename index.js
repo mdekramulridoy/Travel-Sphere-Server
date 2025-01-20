@@ -368,13 +368,21 @@ async function run() {
     app.post("/packages", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const newPackage = req.body;
+    
+        // Validate input data
+        if (!newPackage.name || !newPackage.places || !newPackage.price || !newPackage.plans || !newPackage.guide || !newPackage.images || !Array.isArray(newPackage.images)) {
+          return res.status(400).send({ message: "All fields are required, and images must be an array of URLs" });
+        }
+    
+        // Insert into database
         const result = await packageCollection.insertOne(newPackage);
-        res.send(result);
+        res.status(201).send(result);
       } catch (error) {
         console.error("Error adding package:", error);
         res.status(500).send({ message: "Failed to add package" });
       }
     });
+    
 
     // Get all packages
     app.get("/packages", async (req, res) => {
