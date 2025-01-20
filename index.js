@@ -469,6 +469,40 @@ async function run() {
       const admin = user?.role === "admin";
       res.send({ admin });
     });
+    // Route to fetch stats
+    app.get("/admin/stats", verifyToken,verifyAdmin, async (req, res) => {
+      try {
+        const userCollection = client.db("travelDb").collection("users");
+        const packageCollection = client.db("travelDb").collection("packages");
+        const storyCollection = client.db("travelDb").collection("stories");
+
+        // Fetch total tour guides
+        const totalTourGuides = await userCollection.countDocuments({
+          role: "guide",
+        });
+
+        // Fetch total clients (tourists)
+        const totalClients = await userCollection.countDocuments({
+          role: "tourist",
+        });
+
+        // Fetch total packages
+        const totalPackages = await packageCollection.countDocuments();
+
+        // Fetch total stories
+        const totalStories = await storyCollection.countDocuments();
+
+        res.send({
+          totalTourGuides,
+          totalClients,
+          totalPackages,
+          totalStories,
+        });
+      } catch (error) {
+        console.error("Error fetching stats:", error);
+        res.status(500).send({ message: "Error fetching stats" });
+      }
+    });
 
     // server/index.js
 
