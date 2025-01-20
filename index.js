@@ -55,9 +55,127 @@ async function run() {
     const guideApplicationsCollection = db.collection("guideApplications");
     const packageCollection = db.collection("packages");
     const bookingCollection = db.collection("bookings");
+    const storyCollection = client.db("travelDb").collection("stories");
+
+    // POST API to add a story
+    app.post("/stories", verifyToken, async (req, res) => {
+      try {
+        const { title, text, images } = req.body;
+        const email = req.decoded.email; // Email from the decoded JWT token
+
+        if (!title || !text || !images || images.length === 0) {
+          return res.status(400).send({ message: "All fields are required" });
+        }
+
+        const newStory = {
+          title,
+          text,
+          images,
+          email, // Attach user's email to the story
+          createdAt: new Date(),
+        };
+
+        const result = await storyCollection.insertOne(newStory);
+        res.status(201).send({
+          message: "Story added successfully",
+          storyId: result.insertedId,
+        });
+      } catch (error) {
+        console.error("Error adding story:", error);
+        res.status(500).send({ message: "Failed to add story" });
+      }
+    });
+
+    // GET API to fetch all stories
+    app.get("/stories", verifyToken, async (req, res) => {
+      try {
+        const email = req.decoded.email; // Logged-in user's email from JWT token
+        const stories = await storyCollection.find({ email }).toArray(); // Fetch stories specific to the user
+        res.send(stories);
+      } catch (error) {
+        console.error("Error fetching stories:", error);
+        res.status(500).send({ message: "Failed to fetch stories" });
+      }
+    });
+
+    // Get a specific story by ID
+    app.get("/stories/:id", verifyToken, async (req, res) => {
+      const { id } = req.params;
+      try {
+        const story = await storyCollection.findOne({ _id: new ObjectId(id) });
+        if (!story) {
+          return res.status(404).send({ message: "Story not found" });
+        }
+        res.send(story);
+      } catch (error) {
+        console.error(error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // DELETE API to delete a story by ID
+    app.delete("/stories/:id", verifyToken, async (req, res) => {
+      const { id } = req.params;
+      try {
+        const result = await storyCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+        if (result.deletedCount === 1) {
+          res.send({ message: "Story deleted successfully" });
+        } else {
+          res.status(404).send({ message: "Story not found" });
+        }
+      } catch (error) {
+        console.error("Error deleting story:", error);
+        res.status(500).send({ message: "Error deleting story" });
+      }
+    });
+    // Update a story: Remove a photo or add new photos
+    app.patch("/stories/:id", verifyToken, async (req, res) => {
+      const { id } = req.params;
+      const { removePhoto, addPhotos } = req.body; // Photos to remove and add
+      const storyCollection = client.db("travelDb").collection("stories");
+
+      try {
+        const updateQuery = {};
+        if (removePhoto) {
+          updateQuery.$pull = { images: removePhoto };
+        }
+        if (addPhotos && addPhotos.length > 0) {
+          updateQuery.$push = { images: { $each: addPhotos } };
+        }
+
+        const result = await storyCollection.updateOne(
+          { _id: new ObjectId(id) },
+          updateQuery
+        );
+        res.send(result);
+      } catch (error) {
+        console.error("Error updating story:", error);
+        res.status(500).send({ message: "Error updating story" });
+      }
+    });
+
+    // GET API to fetch stories for a specific user
+    app.get("/stories/:email", verifyToken, async (req, res) => {
+      const { email } = req.params;
+
+      // Ensure the token's email matches the requested email for security
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      try {
+        const stories = await storyCollection.find({ email }).toArray();
+        res.send(stories);
+      } catch (error) {
+        console.error("Error fetching stories:", error);
+        res.status(500).send({ message: "Error fetching stories" });
+      }
+    });
 
     // Booking Collection post
-    app.post("/bookings",verifyToken, async (req, res) => {
+    app.post("/bookings", verifyToken, async (req, res) => {
       const bookingData = req.body;
       try {
         // Add booking to the collection
@@ -90,27 +208,62 @@ async function run() {
         res.status(500).send({ message: "Error fetching bookings" });
       }
     });
+    // Get bookings for a specific guide
+    app.get("/bookings/guide/:email", verifyToken, async (req, res) => {
+      const guideEmail = req.params.email;
 
-    // Endpoint to update booking status to 'confirmed' when guide accepts
-    app.patch("/bookings/confirm/:bookingId",verifyToken, async (req, res) => {
-      const { bookingId } = req.params;
+      // Check if the logged-in user's email matches the requested guide's email
+      if (guideEmail !== req.decoded.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
 
       try {
-        const result = await bookingCollection.updateOne(
-          { _id: new ObjectId(bookingId) },
-          { $set: { status: "confirmed" } } // Update status to 'confirmed'
+        const bookingsCollection = client.db("travelDb").collection("bookings");
+        const bookings = await bookingsCollection
+          .find({ guideEmail, status: "pending" })
+          .toArray();
+
+        res.send(bookings);
+      } catch (error) {
+        console.error("Error fetching guide bookings:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // Update booking status (confirm or reject)
+    app.patch("/bookings/confirm/:id", verifyToken, async (req, res) => {
+      const { id } = req.params; // Booking ID
+      const { action } = req.body; // Action (confirm or reject)
+
+      if (!id || !action) {
+        return res
+          .status(400)
+          .send({ message: "Booking ID and action are required." });
+      }
+
+      if (!["confirm", "reject"].includes(action)) {
+        return res
+          .status(400)
+          .send({ message: "Invalid action. Must be 'confirm' or 'reject'." });
+      }
+
+      try {
+        const bookingsCollection = client.db("travelDb").collection("bookings");
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) }, // Find the booking by ID
+          { $set: { status: action } } // Update the status field
         );
 
-        if (result.modifiedCount > 0) {
-          return res.status(200).send({ message: "Booking confirmed!" });
-        } else {
+        if (result.modifiedCount === 0) {
           return res
-            .status(400)
-            .send({ message: "Booking not found or already confirmed." });
+            .status(404)
+            .send({ message: "Booking not found or already updated." });
         }
+
+        res.send({ message: `Booking ${action}ed successfully.` });
       } catch (error) {
-        console.error("Error confirming booking:", error);
-        return res.status(500).send({ message: "Internal server error" });
+        console.error("Error updating booking status:", error);
+        res.status(500).send({ message: "Internal Server Error" });
       }
     });
 
@@ -262,7 +415,7 @@ async function run() {
       }
     });
     // Fetch guide details by ID
-    app.get("/guides/:id",verifyToken, async (req, res) => {
+    app.get("/guides/:id", verifyToken, async (req, res) => {
       const { id } = req.params;
       const guidesCollection = client.db("travelDb").collection("users");
 
