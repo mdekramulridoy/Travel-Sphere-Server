@@ -57,7 +57,7 @@ async function run() {
     const bookingCollection = db.collection("bookings");
 
     // Booking Collection post
-    app.post("/bookings", async (req, res) => {
+    app.post("/bookings",verifyToken, async (req, res) => {
       const bookingData = req.body;
       try {
         // Add booking to the collection
@@ -72,8 +72,27 @@ async function run() {
       }
     });
 
+    // API to get all bookings for a specific user
+    app.get("/bookings/:email", verifyToken, async (req, res) => {
+      const { email } = req.params;
+      if (email !== req.decoded.email) {
+        return res.status(403).send({ message: "Forbidden access" });
+      }
+
+      try {
+        const bookingsCollection = client.db("travelDb").collection("bookings");
+        const bookings = await bookingsCollection
+          .find({ touristEmail: email })
+          .toArray();
+        res.send(bookings);
+      } catch (error) {
+        console.error("Error fetching bookings:", error);
+        res.status(500).send({ message: "Error fetching bookings" });
+      }
+    });
+
     // Endpoint to update booking status to 'confirmed' when guide accepts
-    app.patch("/bookings/confirm/:bookingId", async (req, res) => {
+    app.patch("/bookings/confirm/:bookingId",verifyToken, async (req, res) => {
       const { bookingId } = req.params;
 
       try {
@@ -243,7 +262,7 @@ async function run() {
       }
     });
     // Fetch guide details by ID
-    app.get("/guides/:id", async (req, res) => {
+    app.get("/guides/:id",verifyToken, async (req, res) => {
       const { id } = req.params;
       const guidesCollection = client.db("travelDb").collection("users");
 
