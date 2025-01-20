@@ -54,6 +54,46 @@ async function run() {
     const userCollection = db.collection("users");
     const guideApplicationsCollection = db.collection("guideApplications");
     const packageCollection = db.collection("packages");
+    const bookingCollection = db.collection("bookings");
+
+    // Booking Collection post
+    app.post("/bookings", async (req, res) => {
+      const bookingData = req.body;
+      try {
+        // Add booking to the collection
+        const result = await bookingCollection.insertOne({
+          ...bookingData,
+          status: "pending", // Default status is pending
+        });
+        res.send({ insertedId: result.insertedId });
+      } catch (error) {
+        console.error("Error adding booking:", error);
+        res.status(500).send({ message: "Error adding booking" });
+      }
+    });
+
+    // Endpoint to update booking status to 'confirmed' when guide accepts
+    app.patch("/bookings/confirm/:bookingId", async (req, res) => {
+      const { bookingId } = req.params;
+
+      try {
+        const result = await bookingCollection.updateOne(
+          { _id: new ObjectId(bookingId) },
+          { $set: { status: "confirmed" } } // Update status to 'confirmed'
+        );
+
+        if (result.modifiedCount > 0) {
+          return res.status(200).send({ message: "Booking confirmed!" });
+        } else {
+          return res
+            .status(400)
+            .send({ message: "Booking not found or already confirmed." });
+        }
+      } catch (error) {
+        console.error("Error confirming booking:", error);
+        return res.status(500).send({ message: "Internal server error" });
+      }
+    });
 
     // Add new package
     app.post("/packages", verifyToken, verifyAdmin, async (req, res) => {
@@ -190,7 +230,7 @@ async function run() {
     });
 
     // Guide api
-    app.get("/guides", verifyToken, verifyAdmin, async (req, res) => {
+    app.get("/guides", async (req, res) => {
       try {
         const guides = await client
           .db("travelDb")
@@ -202,6 +242,28 @@ async function run() {
         res.status(500).send({ message: "Error fetching guides" });
       }
     });
+    // Fetch guide details by ID
+    app.get("/guides/:id", async (req, res) => {
+      const { id } = req.params;
+      const guidesCollection = client.db("travelDb").collection("users");
+
+      try {
+        // Find the guide by ID in the database
+        const guide = await guidesCollection.findOne({ _id: new ObjectId(id) });
+
+        // Check if guide exists
+        if (!guide) {
+          return res.status(404).json({ message: "Guide not found" });
+        }
+
+        // Return the guide data
+        res.json(guide);
+      } catch (error) {
+        console.error("Error fetching guide details:", error);
+        res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
     // Check user role
     app.get("/users/role/:email", verifyToken, async (req, res) => {
       try {
