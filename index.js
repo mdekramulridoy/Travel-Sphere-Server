@@ -119,7 +119,7 @@ async function run() {
     });
 
     // GET API to fetch all stories
-    app.get("/stories", async (req, res) => {
+    app.get("/stories", verifyToken, async (req, res) => {
       try {
         const email = req.decoded.email; // Logged-in user's email from JWT token
         const stories = await storyCollection.find({ email }).toArray(); // Fetch stories specific to the user
