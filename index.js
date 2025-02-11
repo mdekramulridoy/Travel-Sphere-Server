@@ -368,12 +368,25 @@ async function run() {
     app.post("/packages", verifyToken, verifyAdmin, async (req, res) => {
       try {
         const newPackage = req.body;
-    
+
         // Validate input data
-        if (!newPackage.name || !newPackage.places || !newPackage.price || !newPackage.plans || !newPackage.guide || !newPackage.images || !Array.isArray(newPackage.images)) {
-          return res.status(400).send({ message: "All fields are required, and images must be an array of URLs" });
+        if (
+          !newPackage.name ||
+          !newPackage.places ||
+          !newPackage.price ||
+          !newPackage.plans ||
+          !newPackage.guide ||
+          !newPackage.images ||
+          !Array.isArray(newPackage.images)
+        ) {
+          return res
+            .status(400)
+            .send({
+              message:
+                "All fields are required, and images must be an array of URLs",
+            });
         }
-    
+
         // Insert into database
         const result = await packageCollection.insertOne(newPackage);
         res.status(201).send(result);
@@ -382,7 +395,6 @@ async function run() {
         res.status(500).send({ message: "Failed to add package" });
       }
     });
-    
 
     // Get all packages
     app.get("/packages", async (req, res) => {
@@ -467,6 +479,48 @@ async function run() {
         res.send(users);
       } catch (err) {
         res.status(500).send({ message: "Error fetching users" });
+      }
+    });
+    // Update user role or details (Admin Only)
+    app.patch("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+      const updateData = req.body; // Example: { role: "admin" }
+
+      try {
+        const result = await client
+          .db("travelDb")
+          .collection("users")
+          .updateOne({ _id: new ObjectId(id) }, { $set: updateData });
+
+        if (result.modifiedCount > 0) {
+          res.send({ message: "User updated successfully" });
+        } else {
+          res
+            .status(404)
+            .send({ message: "User not found or no changes made" });
+        }
+      } catch (err) {
+        res.status(500).send({ message: "Error updating user" });
+      }
+    });
+
+    // Delete a user (Admin Only)
+    app.delete("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
+      const { id } = req.params;
+
+      try {
+        const result = await client
+          .db("travelDb")
+          .collection("users")
+          .deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount > 0) {
+          res.send({ message: "User deleted successfully" });
+        } else {
+          res.status(404).send({ message: "User not found" });
+        }
+      } catch (err) {
+        res.status(500).send({ message: "Error deleting user" });
       }
     });
 
